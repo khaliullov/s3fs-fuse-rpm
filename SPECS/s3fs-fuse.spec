@@ -9,6 +9,7 @@ URL:            https://github.com/s3fs-fuse/s3fs-fuse
 Source0         https://github.com/s3fs-fuse/s3fs-fuse/archive/%{name}-%{version}.tar.gz
 Source1:        passwd-s3fs
 
+Patch0:         fix-cache.patch
 
 Requires:	fuse >= 2.8.4
 Requires:	curl >= 7.0
@@ -34,6 +35,7 @@ rsync backup to s3.
 
 %prep
 %setup -q
+%patch0 -p0 -b .patch0
 
 
 %build

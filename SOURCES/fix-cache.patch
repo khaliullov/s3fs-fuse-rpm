@@ -1,0 +1,90 @@
+diff -rupN orig/fdcache.cpp src/fdcache.cpp
+--- orig/fdcache.cpp	2015-05-26 09:18:52.362041259 +0000
++++ src/fdcache.cpp	2015-05-26 09:14:06.000000000 +0000
+@@ -573,6 +573,7 @@ int FdEntity::Open(off_t size, time_t ti
+   bool is_csf_loaded  = false;  // loaded by cache stat file
+   bool is_truncate    = false;  // need to truncate
+   bool init_value     = false;  // value for pagelist
++  time_t old_time     = 0;
+ 
+   FPRNINFO("[path=%s][fd=%d][size=%jd][time=%jd]", path.c_str(), fd, (intmax_t)size, (intmax_t)time);
+ 
+@@ -583,6 +584,13 @@ int FdEntity::Open(off_t size, time_t ti
+   }else{
+     // open
+     if(0 != cachepath.size()){
++      struct stat st;
++      stat(cachepath.c_str(), &st);
++      old_time = st.st_mtime;
++      if (-1 != time && old_time > 0 && old_time != time) {
++        FPRNINFO("unlinking outdated file");
++        unlink(cachepath.c_str());
++      }
+       // At first, open & flock stat file.
+       {
+         CacheFileStat cfstat(path.c_str());
+@@ -663,7 +671,7 @@ int FdEntity::Open(off_t size, time_t ti
+   }
+ 
+   // set mtime
+-  if(-1 != time){
++  if(-1 != time && (old_time == 0 || old_time > time)){
+     if(0 != SetMtime(time)){
+       DPRN("failed to set mtime. errno(%d)", errno);
+       fclose(file);
+@@ -686,7 +694,7 @@ int FdEntity::Open(off_t size, time_t ti
+   return 0;
+ }
+ 
+-int FdEntity::SetMtime(time_t time)
++int FdEntity::SetMtime(time_t time, bool lock_file)
+ {
+   FPRNINFO("[path=%s][fd=%d][time=%jd]", path.c_str(), fd, (intmax_t)time);
+ 
+@@ -694,7 +702,9 @@ int FdEntity::SetMtime(time_t time)
+     return 0;
+   }
+   if(-1 != fd){
+-    AutoLock auto_lock(&fdent_lock);
++    if (lock_file) {
++      AutoLock auto_lock(&fdent_lock);
++    }
+ 
+     struct timeval tv[2];
+     tv[0].tv_sec = time;
+@@ -715,6 +725,7 @@ int FdEntity::SetMtime(time_t time)
+       return -errno;
+     }
+   }
++  mtime = time;
+   return 0;
+ }
+ 
+@@ -820,6 +831,7 @@ int FdEntity::Load(off_t start, off_t si
+       pagelist.SetInit((*iter)->offset, static_cast<off_t>((*iter)->bytes), true);
+     }
+     PageList::FreeList(uninit_list);
++    SetMtime(mtime, false);
+   }
+   return result;
+ }
+diff -rupN orig/fdcache.h src/fdcache.h
+--- orig/fdcache.h	2015-05-26 09:18:52.370044235 +0000
++++ src/fdcache.h	2015-05-26 09:16:00.000000000 +0000
+@@ -105,6 +105,7 @@ class FdEntity
+     int             fd;         // file discriptor(tmp file or cache file)
+     FILE*           file;       // file pointer(tmp file or cache file)
+     bool            is_modify;  // if file is changed, this flag is true
++    time_t          mtime;
+ 
+   private:
+     void Clear(void);
+@@ -120,7 +121,7 @@ class FdEntity
+     int Open(off_t size = -1, time_t time = -1);
+     const char* GetPath(void) const { return path.c_str(); }
+     int GetFd(void) const { return fd; }
+-    int SetMtime(time_t time);
++    int SetMtime(time_t time, bool lock_file = true);
+     bool GetSize(off_t& size);
+     bool GetMtime(time_t& time);
+     bool GetStats(struct stat& st);
